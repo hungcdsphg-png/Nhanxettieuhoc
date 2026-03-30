@@ -1,6 +1,7 @@
 
 export interface StudentRecord {
   stt: number;
+  maHocSinh: string;
   hoTen: string;
   ngaySinh: string;
   diem: number;
@@ -21,13 +22,13 @@ export const KHOI_LOP = [
 export const MON_HOC_TIEU_HOC = [
   "Tiếng Việt",
   "Toán",
-  "Tiếng Anh",
+  "Ngoại ngữ",
   "Đạo đức",
-  "Tự nhiên và Xã hội",
+  "Tự nhiên xã hội",
   "Lịch sử và Địa lý",
   "Khoa học",
-  "Tin học",
-  "Công nghệ",
+  "TH-CN (Tin học)",
+  "TH-CN (Công nghệ)",
   "Giáo dục thể chất",
   "Nghệ thuật (Âm nhạc)",
   "Nghệ thuật (Mỹ thuật)",
@@ -38,13 +39,13 @@ export const getSubjectAbbr = (subject: string): string => {
   const mapping: Record<string, string> = {
     "Tiếng Việt": "TV",
     "Toán": "T",
-    "Tiếng Anh": "TA",
+    "Ngoại ngữ": "NN",
     "Đạo đức": "DD",
-    "Tự nhiên và Xã hội": "TNXH",
+    "Tự nhiên xã hội": "TNXH",
     "Lịch sử và Địa lý": "LSDL",
     "Khoa học": "KH",
-    "Tin học": "TH",
-    "Công nghệ": "CN",
+    "TH-CN (Tin học)": "TH",
+    "TH-CN (Công nghệ)": "CN",
     "Giáo dục thể chất": "GDTC",
     "Nghệ thuật (Âm nhạc)": "AN",
     "Nghệ thuật (Mỹ thuật)": "MT",

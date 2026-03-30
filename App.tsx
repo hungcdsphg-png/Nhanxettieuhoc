@@ -40,11 +40,15 @@ const HOC_KY = ["Giữa kì 1", "Cuối kì 1", "Giữa kì 2", "Cuối kì 2"];
 
 const App: React.FC = () => {
   const [records, setRecords] = useState<StudentRecord[]>([]);
+  const [recordsWorkbook, setRecordsWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [commentBank, setCommentBank] = useState<BankComment[]>([]);
   const [selectedSubject, setSelectedSubject] = useState(MON_HOC_TIEU_HOC[0]);
   const [selectedGrade, setSelectedGrade] = useState(KHOI_LOP[0]);
   const [selectedSemester, setSelectedSemester] = useState(HOC_KY[0]);
   const [ppct, setPpct] = useState('');
+  const [availableSheets, setAvailableSheets] = useState<string[]>([]);
+  const [selectedPpctSheet, setSelectedPpctSheet] = useState<string>('');
+  const [ppctWorkbook, setPpctWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [showPpctInput, setShowPpctInput] = useState(false);
   const [isExtractingPpct, setIsExtractingPpct] = useState(false);
   const [isGeneratingBank, setIsGeneratingBank] = useState(false);
@@ -157,6 +161,117 @@ const App: React.FC = () => {
 
   const handleStopGenerating = () => abortControllerRef.current?.abort();
 
+  const importRecordsFromWorkbook = (wb: XLSX.WorkBook, subject: string) => {
+    const subjectName = subject.toLowerCase();
+    const subjectAbbr = getSubjectAbbr(subject).toLowerCase();
+    
+    const targetSheetName = wb.SheetNames.find(name => {
+      const n = name.toLowerCase();
+      return n === subjectName || n === subjectAbbr || n.includes(subjectName) || n.includes(subjectAbbr);
+    }) || wb.SheetNames[0];
+
+    const ws = wb.Sheets[targetSheetName];
+    const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as any[][];
+    
+    // Từ khóa mở rộng để tìm tiêu đề chính xác từ file CSDL
+    const sttKeywords = ['stt', 'số thứ tự', 'số tt', 'tt'];
+    const idKeywords = ['mã học sinh', 'mã hs', 'mã số', 'mã'];
+    const nameKeywords = ['họ tên', 'họ và tên', 'tên học sinh', 'học sinh', 'họ và tên học sinh'];
+    const dobKeywords = ['ngày sinh', 'năm sinh', 'ns', 'ngày, tháng, năm sinh'];
+    const levelKeywords = ['mức đạt được', 'mức đạt', 'xếp loại', 'đánh giá', 'mức', 'kết quả'];
+    const scoreKeywords = ['điểm ktdk', 'điểm ktđk', 'ktdk', 'điểm kiểm tra', 'điểm cuối kỳ', 'điểm'];
+    
+    let sttIdx = -1, idIdx = -1, nameIdx = -1, dobIdx = -1, levelIdx = -1, scoreIdx = -1;
+    let headerRowIdx = -1;
+
+    // Tìm dòng tiêu đề bằng cách quét 30 dòng đầu tiên
+    for (let i = 0; i < Math.min(data.length, 30); i++) {
+      const row = (data[i] || []).map(c => String(c).toLowerCase().trim());
+      
+      // Ưu tiên tìm cột Họ Tên vì đây là cột quan trọng nhất
+      const foundName = row.findIndex(c => nameKeywords.some(k => c === k || c.includes(k)));
+      
+      if (foundName !== -1) {
+        nameIdx = foundName;
+        sttIdx = row.findIndex(c => sttKeywords.some(k => c === k || c.startsWith(k)));
+        idIdx = row.findIndex(c => idKeywords.some(k => c === k || c.includes(k)));
+        dobIdx = row.findIndex(c => dobKeywords.some(k => c.includes(k)));
+        levelIdx = row.findIndex(c => levelKeywords.some(k => c.includes(k)));
+        scoreIdx = row.findIndex(c => scoreKeywords.some(k => c.includes(k)));
+        headerRowIdx = i;
+        break;
+      }
+    }
+
+    if (nameIdx === -1) {
+      setNotification({ type: 'error', message: `Không tìm thấy cột Họ Tên trong sheet "${targetSheetName}". Vui lòng kiểm tra lại file Excel.` });
+      return;
+    }
+
+    const foundCols = [
+      nameIdx !== -1 ? "Họ Tên" : null,
+      sttIdx !== -1 ? "STT" : null,
+      idIdx !== -1 ? "Mã học sinh" : null,
+      dobIdx !== -1 ? "Ngày sinh" : null,
+      levelIdx !== -1 ? "Mức đạt" : null,
+      scoreIdx !== -1 ? "Điểm" : null
+    ].filter(Boolean).join(", ");
+
+    const formatDate = (val: any): string => {
+      if (!val) return "";
+      if (val instanceof Date) return val.toLocaleDateString('vi-VN');
+      return String(val).trim();
+    };
+
+    const newRecords = data.slice(headerRowIdx + 1)
+      .filter(r => String(r[nameIdx] || "").trim().length > 1)
+      .map((r, idx) => {
+        let rawLevel = levelIdx !== -1 ? String(r[levelIdx] || "").trim().toUpperCase() : "";
+        let level = "";
+        
+        // Phân loại mức độ thông minh hơn
+        if (rawLevel.includes("TỐT") || rawLevel === "T" || rawLevel.includes("HTT") || rawLevel.includes("XUẤT SẮC")) {
+          level = "T";
+        } else if (rawLevel.includes("CHƯA") || rawLevel === "C" || rawLevel.includes("CHT") || rawLevel.includes("YẾU") || rawLevel.includes("KÉM")) {
+          level = "C";
+        } else if (rawLevel.includes("HOÀN THÀNH") || rawLevel === "H" || rawLevel === "HT") {
+          level = "H";
+        }
+        
+        let diem = 0;
+        if (scoreIdx !== -1) {
+          const val = r[scoreIdx];
+          if (val !== undefined && val !== "" && val !== null) {
+            diem = parseFloat(String(val).replace(',', '.')) || 0;
+          }
+        }
+
+        return {
+          stt: sttIdx !== -1 ? (parseInt(String(r[sttIdx])) || idx + 1) : idx + 1,
+          maHocSinh: idIdx !== -1 ? String(r[idIdx] || "").trim() : "",
+          hoTen: String(r[nameIdx] || "").trim(),
+          ngaySinh: dobIdx !== -1 ? formatDate(r[dobIdx]) : "",
+          diem: diem,
+          mucDo: level,
+          maNhanXet: "",
+          noiDung: "",
+          isProcessing: false
+        } as StudentRecord;
+      });
+
+    setRecords(newRecords);
+    setNotification({ 
+      type: 'success', 
+      message: `Đã nhập ${newRecords.length} học sinh. Các cột tự động nhận diện: ${foundCols}.` 
+    });
+  };
+
+  useEffect(() => {
+    if (recordsWorkbook) {
+      importRecordsFromWorkbook(recordsWorkbook, selectedSubject);
+    }
+  }, [selectedSubject, recordsWorkbook]);
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -165,89 +280,7 @@ const App: React.FC = () => {
       try {
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
-        
-        const subjectName = selectedSubject.toLowerCase();
-        const subjectAbbr = getSubjectAbbr(selectedSubject).toLowerCase();
-        
-        const targetSheetName = wb.SheetNames.find(name => {
-          const n = name.toLowerCase();
-          return n.includes(subjectName) || n === subjectAbbr || n.includes(subjectAbbr);
-        }) || wb.SheetNames[0];
-
-        const ws = wb.Sheets[targetSheetName];
-        const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as any[][];
-        
-        // Từ khóa mở rộng để tìm tiêu đề chính xác
-        const sttKeywords = ['stt', 'số thứ tự'];
-        const nameKeywords = ['họ tên', 'họ và tên', 'tên học sinh', 'học sinh'];
-        const dobKeywords = ['ngày sinh', 'năm sinh', 'ns'];
-        const levelKeywords = ['mức đạt được', 'mức đạt', 'xếp loại', 'đánh giá'];
-        const scoreKeywords = ['điểm ktdk', 'điểm ktđk', 'ktdk', 'điểm kiểm tra', 'điểm cuối kỳ'];
-        
-        let sttIdx = -1, nameIdx = -1, dobIdx = -1, levelIdx = -1, scoreIdx = -1;
-        let headerRowIdx = -1;
-
-        for (let i = 0; i < Math.min(data.length, 20); i++) {
-          const row = (data[i] || []).map(c => String(c).toLowerCase().trim());
-          const foundName = row.findIndex(c => nameKeywords.some(k => c.includes(k)));
-          
-          if (foundName !== -1) {
-            nameIdx = foundName;
-            sttIdx = row.findIndex(c => sttKeywords.some(k => c === k || c.startsWith(k)));
-            dobIdx = row.findIndex(c => dobKeywords.some(k => c.includes(k)));
-            levelIdx = row.findIndex(c => levelKeywords.some(k => c.includes(k)));
-            scoreIdx = row.findIndex(c => scoreKeywords.some(k => c.includes(k)));
-            headerRowIdx = i;
-            break;
-          }
-        }
-
-        if (nameIdx === -1) {
-          setNotification({ type: 'error', message: `Không tìm thấy cột Họ Tên trong sheet "${targetSheetName}".` });
-          return;
-        }
-
-        const formatDate = (val: any): string => {
-          if (!val) return "";
-          if (val instanceof Date) return val.toLocaleDateString('vi-VN');
-          return String(val).trim();
-        };
-
-        const newRecords = data.slice(headerRowIdx + 1)
-          .filter(r => String(r[nameIdx] || "").trim().length > 1)
-          .map((r, idx) => {
-            let rawLevel = levelIdx !== -1 ? String(r[levelIdx] || "").trim().toUpperCase() : "";
-            let level = "";
-            if (rawLevel.includes("TỐT") || rawLevel === "T" || rawLevel.includes("HTT")) level = "T";
-            else if (rawLevel.includes("CHƯA") || rawLevel === "C" || rawLevel.includes("CHT")) level = "C";
-            else if (rawLevel.includes("HOÀN THÀNH") || rawLevel === "H" || rawLevel === "HT") level = "H";
-            
-            let diem = 0;
-            if (scoreIdx !== -1) {
-              const val = r[scoreIdx];
-              if (val !== undefined && val !== "" && val !== null) {
-                diem = parseFloat(String(val).replace(',', '.')) || 0;
-              }
-            }
-
-            return {
-              stt: sttIdx !== -1 ? (parseInt(String(r[sttIdx])) || idx + 1) : idx + 1,
-              hoTen: String(r[nameIdx] || "").trim(),
-              ngaySinh: dobIdx !== -1 ? formatDate(r[dobIdx]) : "",
-              diem: diem,
-              mucDo: level,
-              maNhanXet: "",
-              noiDung: "",
-              isProcessing: false
-            } as StudentRecord;
-          });
-
-        setRecords(newRecords);
-        setNotification({ 
-          type: 'success', 
-          message: `Đã nhập chính xác ${newRecords.length} học sinh từ sheet "${targetSheetName}".` 
-        });
-
+        setRecordsWorkbook(wb);
       } catch (err) { 
         setNotification({ type: 'error', message: 'Lỗi định dạng file Excel. Hãy kiểm tra các tiêu đề cột.' }); 
       }
@@ -266,7 +299,7 @@ const App: React.FC = () => {
     setNotification({ type: 'info', message: `Đang phân tích file ${file.name}...` });
     setIsExtractingPpct(true);
 
-    const processText = async (text: string) => {
+    const processText = async (text: string, sourceInfo?: string) => {
       if (!apiKey) {
         setShowApiKeyModal(true);
         setNotification({ type: 'error', message: 'Vui lòng nhập API Key để AI trích xuất bài học.' });
@@ -278,7 +311,7 @@ const App: React.FC = () => {
         setPpct(cleanLessons);
         setNotification({ 
           type: 'success', 
-          message: `Đã trích xuất danh sách bài học từ file: ${file.name}.` 
+          message: `Đã trích xuất danh sách bài học từ ${sourceInfo || 'file'}: ${file.name}.` 
         });
       } catch (err) {
         setPpct(text);
@@ -288,14 +321,32 @@ const App: React.FC = () => {
       }
     };
 
+    const getTargetSheet = (sheetNames: string[]) => {
+      const subjectName = selectedSubject.toLowerCase();
+      const subjectAbbr = getSubjectAbbr(selectedSubject).toLowerCase();
+      
+      // Ưu tiên tìm sheet có tên khớp chính xác hoặc chứa tên môn học
+      const found = sheetNames.find(name => {
+        const n = name.toLowerCase();
+        return n === subjectName || n === subjectAbbr || n.includes(subjectName) || n.includes(subjectAbbr);
+      });
+      
+      return found || sheetNames[0];
+    };
+
     try {
       if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
         reader.onload = async (evt) => {
           try {
             const bstr = evt.target?.result;
             const wb = XLSX.read(bstr, { type: 'binary' });
-            const wsname = wb.SheetNames[0];
-            const ws = wb.Sheets[wsname];
+            setPpctWorkbook(wb);
+            setAvailableSheets(wb.SheetNames);
+            
+            const targetSheetName = getTargetSheet(wb.SheetNames);
+            setSelectedPpctSheet(targetSheetName);
+            
+            const ws = wb.Sheets[targetSheetName];
             const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
             
             const content = data
@@ -303,7 +354,7 @@ const App: React.FC = () => {
               .filter(text => text.length > 5)
               .join("\n");
               
-            await processText(content);
+            await processText(content, `sheet "${targetSheetName}"`);
           } catch (err) {
             setNotification({ type: 'error', message: 'Lỗi khi đọc file Excel PPCT.' });
             setIsExtractingPpct(false);
@@ -312,6 +363,9 @@ const App: React.FC = () => {
         reader.readAsBinaryString(file);
       } 
       else if (fileName.endsWith('.docx')) {
+        setAvailableSheets([]);
+        setSelectedPpctSheet('');
+        setPpctWorkbook(null);
         reader.onload = async (evt) => {
           try {
             const arrayBuffer = evt.target?.result as ArrayBuffer;
@@ -325,6 +379,9 @@ const App: React.FC = () => {
         reader.readAsArrayBuffer(file);
       }
       else if (fileName.endsWith('.pdf')) {
+        setAvailableSheets([]);
+        setSelectedPpctSheet('');
+        setPpctWorkbook(null);
         reader.onload = async (evt) => {
           try {
             const arrayBuffer = evt.target?.result as ArrayBuffer;
@@ -332,16 +389,30 @@ const App: React.FC = () => {
             const pdf = await loadingTask.promise;
             let fullText = "";
             
+            // Tìm các trang có chứa tên môn học nếu PDF quá dài
+            const subjectName = selectedSubject.toLowerCase();
+            const subjectAbbr = getSubjectAbbr(selectedSubject).toLowerCase();
+            let relevantPages = [];
+
             for (let i = 1; i <= pdf.numPages; i++) {
               const page = await pdf.getPage(i);
               const textContent = await page.getTextContent();
               const pageText = textContent.items
                 .map((item: any) => item.str)
                 .join(" ");
+              
+              if (pageText.toLowerCase().includes(subjectName) || pageText.toLowerCase().includes(subjectAbbr)) {
+                relevantPages.push(i);
+              }
               fullText += pageText + "\n";
             }
             
-            await processText(fullText);
+            // Nếu tìm thấy các trang liên quan, có thể thông báo cho người dùng
+            const sourceInfo = relevantPages.length > 0 
+              ? `toàn bộ file (tìm thấy từ khóa môn học tại ${relevantPages.length} trang)` 
+              : `toàn bộ file`;
+
+            await processText(fullText, sourceInfo);
           } catch (err) {
             setNotification({ type: 'error', message: 'Lỗi khi đọc file PDF PPCT.' });
             setIsExtractingPpct(false);
@@ -359,9 +430,59 @@ const App: React.FC = () => {
     if (ppctFileInputRef.current) ppctFileInputRef.current.value = '';
   };
 
+  const handleSheetChange = async (sheetName: string) => {
+    if (!ppctWorkbook) return;
+    
+    setSelectedPpctSheet(sheetName);
+    setIsExtractingPpct(true);
+    setNotification({ type: 'info', message: `Đang chuyển sang sheet "${sheetName}"...` });
+
+    try {
+      const ws = ppctWorkbook.Sheets[sheetName];
+      const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+      
+      const content = data
+        .map(row => row.filter(cell => cell !== null && cell !== "").join(" "))
+        .filter(text => text.length > 5)
+        .join("\n");
+        
+      if (!apiKey) {
+        setPpct(content);
+        setIsExtractingPpct(false);
+        return;
+      }
+
+      const cleanLessons = await extractLessonsFromPpct(content, selectedSubject, selectedGrade, apiKey);
+      setPpct(cleanLessons);
+      setNotification({ type: 'success', message: `Đã cập nhật bài học từ sheet "${sheetName}".` });
+    } catch (err) {
+      setNotification({ type: 'error', message: 'Lỗi khi xử lý sheet mới.' });
+    } finally {
+      setIsExtractingPpct(false);
+    }
+  };
+
+  useEffect(() => {
+    if (ppctWorkbook && availableSheets.length > 0) {
+      const subjectName = selectedSubject.toLowerCase();
+      const subjectAbbr = getSubjectAbbr(selectedSubject).toLowerCase();
+      
+      const found = availableSheets.find(name => {
+        const n = name.toLowerCase();
+        return n === subjectName || n === subjectAbbr || n.includes(subjectName) || n.includes(subjectAbbr);
+      });
+      
+      const newTarget = found || availableSheets[0];
+      if (newTarget !== selectedPpctSheet) {
+        handleSheetChange(newTarget);
+      }
+    }
+  }, [selectedSubject, ppctWorkbook, availableSheets, selectedPpctSheet]);
+
   const exportTableToExcel = () => {
     const data = filteredRecords.map(r => [
       r.stt, 
+      r.maHocSinh,
       r.hoTen, 
       r.ngaySinh,
       r.mucDo === 'T' ? 'HTT' : r.mucDo === 'H' ? 'HT' : 'CHT', 
@@ -369,7 +490,7 @@ const App: React.FC = () => {
       r.maNhanXet, 
       r.noiDung
     ]);
-    const ws = XLSX.utils.aoa_to_sheet([["STT", "Họ tên", "Ngày sinh", "Mức đạt được", "Điểm KTĐK", "Mã NX", "Nội dung nhận xét"], ...data]);
+    const ws = XLSX.utils.aoa_to_sheet([["STT", "Mã học sinh", "Họ tên", "Ngày sinh", "Mức đạt được", "Điểm KTĐK", "Mã NX", "Nội dung nhận xét"], ...data]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "NhanXet");
     XLSX.writeFile(wb, `NhanXet_${selectedGrade}_${selectedSubject}.xlsx`);
@@ -576,11 +697,11 @@ const App: React.FC = () => {
               </button>
             </div>
             <p className="text-xs text-slate-500 mb-4 font-medium italic">
-              * Tải lên file Phân phối chương trình (Word, Excel, PDF) để AI phân tích các bài học và chủ đề đã học trong học kỳ này.
+              * Tải lên file Phân phối chương trình ( Excel, PDF) để AI phân tích các bài học và chủ đề đã học trong học kỳ này.
             </p>
             
             <div className="flex flex-col gap-4">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <input 
                   type="file" 
                   accept=".xlsx,.xls,.docx,.pdf" 
@@ -595,18 +716,39 @@ const App: React.FC = () => {
                 >
                   {isExtractingPpct ? (
                     <>
-                      <Loader2 size={18} className="animate-spin" /> Đang trích xuất bài học...
+                      <Loader2 size={18} className="animate-spin" /> Đang xử lý...
                     </>
                   ) : (
                     <>
-                      <Upload size={18} /> Tải lên file PPCT (Word, Excel, PDF)
+                      <Upload size={18} /> Tải lên file PPCT ( Excel, PDF)
                     </>
                   )}
                 </button>
+
+                {availableSheets.length > 0 && (
+                  <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-2xl border border-slate-200">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-3 mr-1">Chọn Sheet:</span>
+                    <select 
+                      value={selectedPpctSheet} 
+                      onChange={(e) => handleSheetChange(e.target.value)}
+                      className="px-4 py-2 bg-white rounded-xl text-sm font-bold outline-none border-none shadow-sm cursor-pointer text-indigo-600"
+                    >
+                      {availableSheets.map(name => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 {ppct && !isExtractingPpct && (
                   <button 
-                    onClick={() => setPpct('')}
-                    className="text-xs text-rose-500 font-bold hover:underline"
+                    onClick={() => {
+                      setPpct('');
+                      setAvailableSheets([]);
+                      setSelectedPpctSheet('');
+                      setPpctWorkbook(null);
+                    }}
+                    className="text-xs text-rose-500 font-bold hover:underline ml-auto"
                   >
                     Xóa dữ liệu đã tải
                   </button>
@@ -645,7 +787,7 @@ const App: React.FC = () => {
         <div className="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4">
           <div className="bg-white p-1.5 rounded-2xl shadow-sm border border-slate-200 flex">
             <button onClick={() => setViewMode('table')} className={`px-8 py-2.5 rounded-xl text-sm font-bold transition-all ${viewMode === 'table' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-50'}`}>
-              <TableIcon size={18} className="inline mr-2" /> Học sinh
+              <TableIcon size={18} className="inline mr-2" /> FIle CSDL
             </button>
             <button onClick={() => setViewMode('content')} className={`px-8 py-2.5 rounded-xl text-sm font-bold transition-all ${viewMode === 'content' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-50'}`}>
               <FileJson size={18} className="inline mr-2" /> Ngân hàng mẫu
@@ -674,7 +816,8 @@ const App: React.FC = () => {
                 <thead className="bg-slate-50 text-slate-600 font-bold border-b-2 border-slate-200">
                   <tr>
                     <th className="px-4 py-4 w-12 text-slate-400">STT</th>
-                    <th className="px-6 py-4 w-56 text-left">Học sinh</th>
+                    <th className="px-4 py-4 w-32 text-left">Mã học sinh</th>
+                    <th className="px-6 py-4 w-56 text-left">Họ và tên</th>
                     <th className="px-4 py-4 w-32">Ngày sinh</th>
                     <th className="px-4 py-4 w-28">Mức đạt</th>
                     <th className="px-4 py-4 w-24">Điểm KTĐK</th>
@@ -687,6 +830,7 @@ const App: React.FC = () => {
                   {filteredRecords.map((r) => (
                     <tr key={r.stt} className="group hover:bg-indigo-50/40 transition-all">
                       <td className="px-4 py-5 text-xs text-slate-400 font-bold">{r.stt}</td>
+                      <td className="px-4 py-5 text-xs font-mono font-bold text-indigo-600 text-left">{r.maHocSinh || "-"}</td>
                       <td className="px-6 py-5 text-sm font-bold text-slate-900 text-left">{r.hoTen}</td>
                       <td className="px-4 py-5 text-xs font-medium text-slate-500">{r.ngaySinh || "-"}</td>
                       <td className="px-4 py-5">
