@@ -59,6 +59,12 @@ const App: React.FC = () => {
   const ppctFileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  useEffect(() => {
+    if (!apiKey) {
+      setShowApiKeyModal(true);
+    }
+  }, [apiKey]);
+
   const calculatedRecords = useMemo(() => {
     const abbr = getSubjectAbbr(selectedSubject);
     const counters: Record<string, number> = {};
@@ -118,6 +124,18 @@ const App: React.FC = () => {
       setNotification({ type: 'error', message: 'Vui lòng nhập API Key của Google AI Studio để sử dụng tính năng này.' });
       return;
     }
+
+    if (!ppct || ppct.trim().length < 10) {
+      setShowPpctInput(true);
+      setNotification({ 
+        type: 'error', 
+        message: 'BẮT BUỘC: Vui lòng tải lên hoặc nhập Phân phối chương trình (PPCT) trước khi tạo mẫu nhận xét để AI có dữ liệu bài học.' 
+      });
+      // Scroll to PPCT section
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
     setIsGeneratingBank(true);
     setNotification(null);
     abortControllerRef.current = new AbortController();
@@ -409,16 +427,18 @@ const App: React.FC = () => {
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200">
             <div className="p-8">
-              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 bg-indigo-100 text-indigo-600 rounded-xl">
                     <Key size={20} />
                   </div>
                   <h3 className="text-xl font-black uppercase tracking-tight text-slate-800">Cấu hình API Key</h3>
                 </div>
-                <button onClick={() => setShowApiKeyModal(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
-                  <X size={24} />
-                </button>
+                {apiKey && (
+                  <button onClick={() => setShowApiKeyModal(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                    <X size={24} />
+                  </button>
+                )}
               </div>
               
               <p className="text-sm text-slate-500 mb-6 font-medium leading-relaxed">
@@ -438,17 +458,20 @@ const App: React.FC = () => {
                 </div>
                 
                 <div className="flex gap-3 pt-2">
-                  <button 
-                    onClick={() => setShowApiKeyModal(false)}
-                    className="flex-1 px-6 py-4 bg-slate-100 text-slate-600 rounded-2xl text-sm font-bold hover:bg-slate-200 transition-all active:scale-95"
-                  >
-                    Hủy bỏ
-                  </button>
+                  {apiKey && (
+                    <button 
+                      onClick={() => setShowApiKeyModal(false)}
+                      className="flex-1 px-6 py-4 bg-slate-100 text-slate-600 rounded-2xl text-sm font-bold hover:bg-slate-200 transition-all active:scale-95"
+                    >
+                      Hủy bỏ
+                    </button>
+                  )}
                   <button 
                     onClick={handleSaveApiKey}
-                    className="flex-1 px-6 py-4 bg-indigo-600 text-white rounded-2xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95"
+                    disabled={!tempApiKey.trim()}
+                    className={`flex-1 px-6 py-4 text-white rounded-2xl text-sm font-bold shadow-lg transition-all active:scale-95 ${!tempApiKey.trim() ? 'bg-slate-400 cursor-not-allowed' : 'bg-indigo-600 shadow-indigo-200 hover:bg-indigo-700'}`}
                   >
-                    Lưu cấu hình
+                    Bắt đầu sử dụng
                   </button>
                 </div>
               </div>
@@ -462,7 +485,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      <header className="bg-white border-b sticky top-0 z-40 px-4 md:px-8 py-4 shadow-sm">
+      <header className={`bg-white border-b sticky top-0 z-40 px-4 md:px-8 py-4 shadow-sm transition-all ${!apiKey ? 'blur-sm pointer-events-none' : ''}`}>
         <div className="w-full flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-indigo-600 rounded-xl text-white shadow-lg relative">
@@ -490,9 +513,15 @@ const App: React.FC = () => {
 
             <button 
               onClick={() => setShowPpctInput(!showPpctInput)} 
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all border ${showPpctInput ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all border relative ${showPpctInput ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
             >
               <AlignLeft size={16} /> Phân phối chương trình 
+              {!ppct && (
+                <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
+                </span>
+              )}
             </button>
 
             <div className="h-8 w-px bg-slate-200 mx-1 hidden sm:block"></div>
@@ -510,14 +539,24 @@ const App: React.FC = () => {
                 <Square size={16} fill="currentColor" /> Dừng tạo
               </button>
             ) : (
-              <button onClick={handleGenerateBank} className="inline-flex items-center gap-2 px-5 py-2.5 bg-amber-500 text-white rounded-xl shadow-md text-sm font-bold transition-all group active:scale-95">
-                <Database size={16} className="group-hover:rotate-12 transition-transform" /> Tạo mẫu nhận xét
+              <button 
+                onClick={handleGenerateBank} 
+                className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl shadow-md text-sm font-bold transition-all group active:scale-95 relative ${!ppct ? 'bg-slate-400 text-white' : 'bg-amber-500 text-white hover:bg-amber-600'}`}
+              >
+                <Database size={16} className="group-hover:rotate-12 transition-transform" /> 
+                Tạo mẫu nhận xét
+                {!ppct && (
+                  <span className="absolute -top-2 -right-2 flex h-4 w-4">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-4 w-4 bg-rose-500 items-center justify-center text-[8px] text-white font-black">!</span>
+                  </span>
+                )}
               </button>
             )}
 
             <input type="file" accept=".xlsx,.xls" className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
             <button onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors">
-              <FileUp size={16} /> Nhập Excel
+              <FileUp size={16} /> Nhập file đánh giá 
             </button>
 
             {viewMode === 'table' ? (
@@ -533,7 +572,7 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="w-full px-4 md:px-8 lg:px-12 mt-8">
+      <main className={`w-full px-4 md:px-8 lg:px-12 mt-8 transition-all ${!apiKey ? 'blur-sm pointer-events-none' : ''}`}>
         {showPpctInput && (
           <div className="mb-8 bg-white p-6 rounded-[2rem] shadow-xl border border-indigo-100 animate-in slide-in-from-top duration-300">
             <div className="flex items-center justify-between mb-4">
