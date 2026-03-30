@@ -59,12 +59,6 @@ const App: React.FC = () => {
   const ppctFileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    if (!apiKey) {
-      setShowApiKeyModal(true);
-    }
-  }, [apiKey]);
-
   const calculatedRecords = useMemo(() => {
     const abbr = getSubjectAbbr(selectedSubject);
     const counters: Record<string, number> = {};
@@ -427,22 +421,20 @@ const App: React.FC = () => {
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200">
             <div className="p-8">
-                <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 bg-indigo-100 text-indigo-600 rounded-xl">
                     <Key size={20} />
                   </div>
                   <h3 className="text-xl font-black uppercase tracking-tight text-slate-800">Cấu hình API Key</h3>
                 </div>
-                {apiKey && (
-                  <button onClick={() => setShowApiKeyModal(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
-                    <X size={24} />
-                  </button>
-                )}
+                <button onClick={() => setShowApiKeyModal(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                  <X size={24} />
+                </button>
               </div>
               
               <p className="text-sm text-slate-500 mb-6 font-medium leading-relaxed">
-                Nhập API Key từ <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-indigo-600 font-bold hover:underline">Google AI Studio</a> để sử dụng các tính năng thông minh của trợ lý.
+                Hãy nhập API Key từ <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-indigo-600 font-bold hover:underline">Google AI Studio</a> để sử dụng các tính năng thông minh của trợ lý.
               </p>
               
               <div className="space-y-4">
@@ -458,20 +450,17 @@ const App: React.FC = () => {
                 </div>
                 
                 <div className="flex gap-3 pt-2">
-                  {apiKey && (
-                    <button 
-                      onClick={() => setShowApiKeyModal(false)}
-                      className="flex-1 px-6 py-4 bg-slate-100 text-slate-600 rounded-2xl text-sm font-bold hover:bg-slate-200 transition-all active:scale-95"
-                    >
-                      Hủy bỏ
-                    </button>
-                  )}
+                  <button 
+                    onClick={() => setShowApiKeyModal(false)}
+                    className="flex-1 px-6 py-4 bg-slate-100 text-slate-600 rounded-2xl text-sm font-bold hover:bg-slate-200 transition-all active:scale-95"
+                  >
+                    Hủy bỏ
+                  </button>
                   <button 
                     onClick={handleSaveApiKey}
-                    disabled={!tempApiKey.trim()}
-                    className={`flex-1 px-6 py-4 text-white rounded-2xl text-sm font-bold shadow-lg transition-all active:scale-95 ${!tempApiKey.trim() ? 'bg-slate-400 cursor-not-allowed' : 'bg-indigo-600 shadow-indigo-200 hover:bg-indigo-700'}`}
+                    className="flex-1 px-6 py-4 bg-indigo-600 text-white rounded-2xl text-sm font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95"
                   >
-                    Bắt đầu sử dụng
+                    Lưu cấu hình
                   </button>
                 </div>
               </div>
@@ -485,7 +474,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      <header className={`bg-white border-b sticky top-0 z-40 px-4 md:px-8 py-4 shadow-sm transition-all ${!apiKey ? 'blur-sm pointer-events-none' : ''}`}>
+      <header className="bg-white border-b sticky top-0 z-40 px-4 md:px-8 py-4 shadow-sm">
         <div className="w-full flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-indigo-600 rounded-xl text-white shadow-lg relative">
@@ -494,7 +483,7 @@ const App: React.FC = () => {
             </div>
             <div>
               <h1 className="text-xl font-black uppercase tracking-tight">TRỢ LÍ TẠO NHẬN XÉT  ({selectedGrade})</h1>
-              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest leading-tight">Môn: {selectedSubject} | Hỗ trợ giáo viên </p>
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest leading-tight">Môn: {selectedSubject}  </p>
             </div>
           </div>
 
@@ -556,7 +545,7 @@ const App: React.FC = () => {
 
             <input type="file" accept=".xlsx,.xls" className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
             <button onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors">
-              <FileUp size={16} /> Nhập file đánh giá 
+              <FileUp size={16} /> Nhập file đánh giá CSDL 
             </button>
 
             {viewMode === 'table' ? (
@@ -572,7 +561,7 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className={`w-full px-4 md:px-8 lg:px-12 mt-8 transition-all ${!apiKey ? 'blur-sm pointer-events-none' : ''}`}>
+      <main className="w-full px-4 md:px-8 lg:px-12 mt-8">
         {showPpctInput && (
           <div className="mb-8 bg-white p-6 rounded-[2rem] shadow-xl border border-indigo-100 animate-in slide-in-from-top duration-300">
             <div className="flex items-center justify-between mb-4">
